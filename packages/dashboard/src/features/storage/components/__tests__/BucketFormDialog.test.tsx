@@ -24,7 +24,7 @@ describe('BucketFormDialog', () => {
   });
 
   it('creates a bucket with a trimmed name and closes on success', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onOpenChange = vi.fn();
     const onSuccess = vi.fn();
     bucketMocks.createBucket.mockResolvedValue(undefined);

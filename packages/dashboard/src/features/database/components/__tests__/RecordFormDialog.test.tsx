@@ -47,7 +47,7 @@ describe('RecordFormDialog', () => {
   });
 
   it('keeps footer actions reachable so a record can be submitted with many columns', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onOpenChange = vi.fn();
     createRecord.mockClear();
 

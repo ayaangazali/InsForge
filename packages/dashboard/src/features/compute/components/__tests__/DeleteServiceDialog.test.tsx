@@ -5,7 +5,7 @@ import { DeleteServiceDialog } from '#features/compute/components/DeleteServiceD
 
 describe('DeleteServiceDialog', () => {
   it('requires typing the service name before confirming deletion', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     const onConfirm = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();
 
