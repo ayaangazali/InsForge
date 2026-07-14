@@ -539,6 +539,80 @@ paths:
         '403':
           description: Email verification required
 
+  /api/auth/id-token:
+    post:
+      summary: Sign in with ID token
+      description: |
+        Sign in with an ID token issued by a third-party identity provider
+        (e.g. Google One Tap or native Google Sign-In SDKs). The token is
+        verified against the provider's public keys; on first sign-in a new
+        user account is created (unless signups are disabled).
+
+        Currently only the `google` provider is supported.
+      tags:
+        - Client
+      parameters:
+        - name: client_type
+          in: query
+          schema:
+            type: string
+            enum: [web, mobile, desktop, server]
+            default: web
+          description: |
+            Client type determines how refresh tokens are returned:
+            - web: Refresh token stored in httpOnly cookie, csrfToken returned in response
+            - mobile/desktop/server: refreshToken returned directly in response body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - provider
+                - token
+              properties:
+                provider:
+                  type: string
+                  enum: [google]
+                  description: Identity provider that issued the ID token
+                token:
+                  type: string
+                  description: ID token (JWT) issued by the provider
+                  example: "eyJhbGciOiJSUzI1NiIsImtpZCI6..."
+      responses:
+        '200':
+          description: Sign-in successful, session created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserResponse'
+                  accessToken:
+                    type: string
+                  csrfToken:
+                    type: string
+                    nullable: true
+                    description: CSRF token for use with refresh endpoint (web clients only)
+                  refreshToken:
+                    type: string
+                    nullable: true
+                    description: Refresh token for mobile/desktop/server clients (null for web clients)
+        '400':
+          description: Unsupported provider, missing token, or ID token verification failed
+        '403':
+          description: Signups disabled — first-time sign-in would create a new user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: AUTH_SIGNUP_DISABLED
+                message: User signups are disabled for this project.
+                statusCode: 403
+
   /api/auth/refresh:
     post:
       summary: Refresh access token
@@ -739,6 +813,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/admin/sessions/current:
+    get:
+      summary: Get current admin session
+      description: Returns the current dashboard admin session derived from the access token (admin only)
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current admin session info
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - admin
+                properties:
+                  admin:
+                    type: object
+                    required:
+                      - sub
+                    properties:
+                      sub:
+                        type: string
+                        description: Admin session subject identifier
+                        example: local:admin
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Admin only
 
   /api/auth/admin/refresh:
     post:
@@ -1156,6 +1262,163 @@ paths:
           description: Invalid request or password requirements not met
         '401':
           description: Verification code/token expired or invalid
+
+  /api/auth/smtp-config:
+    get:
+      summary: Get SMTP configuration
+      description: Get the custom SMTP configuration used for sending auth emails (admin only). The SMTP password is never returned; hasPassword indicates whether one is stored.
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: SMTP configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmtpConfig'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Admin only
+
+    put:
+      summary: Update SMTP configuration
+      description: |
+        Create or update the custom SMTP configuration used for sending auth emails (admin only).
+
+        When `enabled` is true, `host`, `username`, `senderName`, and a valid
+        `senderEmail` are required. When `enabled` is false the connection
+        fields may be left empty. Omit `password` to keep the currently
+        stored password.
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - enabled
+                - port
+              properties:
+                enabled:
+                  type: boolean
+                  description: Whether custom SMTP is used for sending auth emails
+                host:
+                  type: string
+                  description: SMTP server hostname (required when enabled)
+                  example: smtp.example.com
+                port:
+                  type: integer
+                  enum: [25, 465, 587, 2525]
+                  description: SMTP server port
+                username:
+                  type: string
+                  description: SMTP username (required when enabled)
+                password:
+                  type: string
+                  description: SMTP password (omit to keep the currently stored password)
+                senderEmail:
+                  type: string
+                  format: email
+                  description: Sender email address (required when enabled)
+                senderName:
+                  type: string
+                  description: Sender display name (required when enabled)
+                minIntervalSeconds:
+                  type: integer
+                  minimum: 0
+                  default: 60
+                  description: Minimum interval in seconds between emails sent to the same address (0 disables throttling)
+      responses:
+        '200':
+          description: SMTP configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SmtpConfig'
+        '400':
+          description: Invalid request
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Admin only
+
+  /api/auth/email-templates:
+    get:
+      summary: List email templates
+      description: Get all auth email templates (admin only)
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of email templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EmailTemplate'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Admin only
+
+  /api/auth/email-templates/{type}:
+    put:
+      summary: Update email template
+      description: Update the subject and HTML body of an auth email template (admin only)
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [email-verification-code, email-verification-link, reset-password-code, reset-password-link]
+          description: Email template type
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - subject
+                - bodyHtml
+              properties:
+                subject:
+                  type: string
+                  description: Email subject line
+                bodyHtml:
+                  type: string
+                  description: HTML body of the email template
+      responses:
+        '200':
+          description: Email template updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailTemplate'
+        '400':
+          description: Invalid template type or request body
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden - Admin only
 
   /api/auth/oauth/configs:
     get:
@@ -2036,6 +2299,62 @@ components:
         metadata:
           type: object
           description: JSONB field for flexible data
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SmtpConfig:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        enabled:
+          type: boolean
+          description: Whether custom SMTP is used for sending auth emails
+        host:
+          type: string
+          example: smtp.example.com
+        port:
+          type: integer
+          example: 587
+        username:
+          type: string
+        hasPassword:
+          type: boolean
+          description: Whether an SMTP password is stored (the password itself is never returned)
+        senderEmail:
+          type: string
+        senderName:
+          type: string
+        minIntervalSeconds:
+          type: integer
+          minimum: 0
+          description: Minimum interval in seconds between emails sent to the same address (0 disables throttling)
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    EmailTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        templateType:
+          type: string
+          enum: [email-verification-code, email-verification-link, reset-password-code, reset-password-link]
+        subject:
+          type: string
+        bodyHtml:
+          type: string
+          description: HTML body of the email template
         createdAt:
           type: string
           format: date-time
