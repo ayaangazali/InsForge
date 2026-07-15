@@ -1,0 +1,559 @@
+openapi: 3.0.3
+info:
+  title: Insforge Schedules API
+  version: 1.0.0
+  description: >-
+    Cron-triggered function invocation. A schedule is a cron expression, a
+    target URL, an HTTP method, and optional headers/body; pg_cron fires the
+    request at each tick and logs the result. All endpoints require project
+    admin authentication (admin JWT bearer token or API key).
+
+paths:
+  /api/schedules:
+    get:
+      summary: List all schedules
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      responses:
+        '200':
+          description: All schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Schedule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      summary: Create a schedule
+      description: >-
+        Creates the schedule and registers the pg_cron job. Header values may
+        reference secrets with `${{secrets.KEY_NAME}}` syntax; they are
+        resolved and encrypted at creation time.
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '201':
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MutateScheduleResponse'
+              example:
+                id: "123e4567-e89b-12d3-a456-426614174000"
+                cronJobId: "42"
+                message: "Schedule created successfully"
+        '400':
+          description: >-
+            Validation failure (`INVALID_INPUT`) or invalid cron expression
+            (`SCHEDULE_INVALID_CRON`). Cron accepts 5-field expressions
+            (`*/5 * * * *`) or the pg_cron sub-minute interval form
+            (`1 second` through `59 seconds`); 6-field expressions are
+            rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: >-
+            A header value references a secret that does not exist
+            (`SECRET_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/schedules/config:
+    get:
+      summary: Get schedules configuration
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      responses:
+        '200':
+          description: Schedules configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchedulesConfig'
+              example:
+                retentionDays: 30
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    patch:
+      summary: Update schedules configuration
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchedulesConfig'
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "Schedules config updated successfully"
+        '400':
+          description: Validation failure (`INVALID_INPUT`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/schedules/{id}:
+    get:
+      summary: Get a schedule
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+      responses:
+        '200':
+          description: The schedule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Schedule not found (`SCHEDULE_NOT_FOUND`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      summary: Update a schedule
+      description: >-
+        Partial update; any subset of fields, including toggling `isActive`.
+        Changing schedule fields re-registers the pg_cron job.
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleRequest'
+      responses:
+        '200':
+          description: Schedule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MutateScheduleResponse'
+              example:
+                id: "123e4567-e89b-12d3-a456-426614174000"
+                cronJobId: "42"
+                message: "Schedule updated successfully"
+        '400':
+          description: >-
+            Validation failure (`INVALID_INPUT`) or invalid cron expression
+            (`SCHEDULE_INVALID_CRON`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: >-
+            Schedule not found (`SCHEDULE_NOT_FOUND`), or a header value
+            references a secret that does not exist (`SECRET_NOT_FOUND`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete a schedule
+      description: >-
+        Unregisters the pg_cron job and deletes the schedule. The handler
+        does not return 404 for unknown ids; failures from the database
+        function surface as 500 (`DATABASE_INTERNAL_ERROR`).
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+      responses:
+        '200':
+          description: Schedule deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+              example:
+                message: "Schedule deleted successfully."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/schedules/{id}/logs:
+    get:
+      summary: List execution logs for a schedule
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+        - apiKey: []
+      parameters:
+        - $ref: '#/components/parameters/ScheduleId'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: >-
+            Number of log entries to return. Values outside 1–100 are clamped
+            by the handler rather than rejected.
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: >-
+            Number of log entries to skip. Negative values are clamped to 0.
+      responses:
+        '200':
+          description: Execution logs, newest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListExecutionLogsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  parameters:
+    ScheduleId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Schedule id
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Forbidden - Admin only
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    Schedule:
+      type: object
+      required:
+        - id
+        - name
+        - cronSchedule
+        - functionUrl
+        - httpMethod
+        - headers
+        - body
+        - cronJobId
+        - lastExecutedAt
+        - isActive
+        - nextRun
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        cronSchedule:
+          type: string
+          description: >-
+            5-field cron expression, or pg_cron sub-minute interval form
+            (`1 second` – `59 seconds`).
+          example: "*/5 * * * *"
+        functionUrl:
+          type: string
+          format: uri
+        httpMethod:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE]
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          nullable: true
+          description: >-
+            Headers sent with each invocation. Values may reference secrets
+            via `${{secrets.KEY_NAME}}`.
+        body:
+          nullable: true
+          description: JSON object or raw string sent as the request body.
+          oneOf:
+            - type: string
+            - type: object
+        cronJobId:
+          type: string
+          nullable: true
+          description: >-
+            pg_cron job id. BIGINT in Postgres, returned as a string.
+        lastExecutedAt:
+          type: string
+          format: date-time
+          nullable: true
+        isActive:
+          type: boolean
+          description: Whether the cron job is currently registered.
+        nextRun:
+          type: string
+          format: date-time
+          nullable: true
+          description: Next scheduled run; null if the cron expression could not be evaluated.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateScheduleRequest:
+      type: object
+      required:
+        - name
+        - cronSchedule
+        - functionUrl
+        - httpMethod
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 3
+        cronSchedule:
+          type: string
+          example: "*/5 * * * *"
+        functionUrl:
+          type: string
+          format: uri
+        httpMethod:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE]
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Values may reference secrets via `${{secrets.KEY_NAME}}`.
+        body:
+          type: object
+          description: JSON body to send with the request.
+
+    UpdateScheduleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 3
+        cronSchedule:
+          type: string
+        functionUrl:
+          type: string
+          format: uri
+        httpMethod:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE]
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        body:
+          type: object
+        isActive:
+          type: boolean
+          description: Enable or disable the schedule.
+
+    MutateScheduleResponse:
+      type: object
+      required:
+        - id
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+        cronJobId:
+          type: string
+          nullable: true
+          description: >-
+            pg_cron job id as a string. On update, toggle-only requests echo
+            the schedule's existing job id, which is null when no cron job is
+            registered.
+        message:
+          type: string
+
+    MessageResponse:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+
+    SchedulesConfig:
+      type: object
+      required:
+        - retentionDays
+      properties:
+        retentionDays:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: >-
+            Days execution logs are retained; null disables retention-based
+            cleanup.
+
+    ScheduleLog:
+      type: object
+      required:
+        - id
+        - scheduleId
+        - executedAt
+        - statusCode
+        - success
+        - durationMs
+        - message
+      properties:
+        id:
+          type: string
+          format: uuid
+        scheduleId:
+          type: string
+          format: uuid
+        executedAt:
+          type: string
+          format: date-time
+        statusCode:
+          type: integer
+        success:
+          type: boolean
+        durationMs:
+          type: integer
+        message:
+          type: string
+          nullable: true
+
+    ListExecutionLogsResponse:
+      type: object
+      required:
+        - logs
+        - totalCount
+        - limit
+        - offset
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleLog'
+        totalCount:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+        - statusCode
+      properties:
+        error:
+          type: string
+          description: Error code for programmatic handling
+        message:
+          type: string
+          description: Human-readable error message
+        statusCode:
+          type: integer
+          description: HTTP status code
+        nextActions:
+          type: string
+          description: Suggested action to resolve the error
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    apiKey:
+      type: apiKey
+      in: header
+      name: x-api-key
