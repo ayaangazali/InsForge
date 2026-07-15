@@ -305,6 +305,10 @@
                 "openapi": "https://raw.githubusercontent.com/InsForge/InsForge/main/openapi/functions.yaml"
               },
               {
+                "group": "Schedules",
+                "openapi": "https://raw.githubusercontent.com/InsForge/InsForge/main/openapi/schedules.yaml"
+              },
+              {
                 "group": "Realtime",
                 "openapi": "https://raw.githubusercontent.com/InsForge/InsForge/main/openapi/realtime.yaml"
               },
