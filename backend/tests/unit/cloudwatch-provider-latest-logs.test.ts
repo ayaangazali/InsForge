@@ -76,6 +76,29 @@ describe('CloudWatchProvider.getLogsBySource latest logs', () => {
     expect(calls).toEqual([{ startFromHead: false, limit: 100 }]);
   });
 
+  it('reports the newest event as lastActivity when the stats Insights query fails', async () => {
+    const events = Array.from({ length: 5000 }, (_, i) => event(NOW - (5000 - i) * 10000));
+    const { provider } = providerWith(events);
+    const { send } = (provider as unknown as { cwClient: { send: (cmd: unknown) => unknown } })
+      .cwClient;
+    let emptyPage = true;
+    Object.assign(provider, {
+      cwClient: {
+        send: async (cmd: unknown) => {
+          if (cmd instanceof FilterLogEventsCommand && emptyPage) {
+            emptyPage = false;
+            return { events: [], nextToken: '0' };
+          }
+          return send(cmd);
+        },
+      },
+    });
+
+    const [stats] = await provider.getLogSourceStats();
+
+    expect(stats.lastActivity).toBe(new Date(NOW - 10000).toISOString());
+  });
+
   it('pages backward past short pages and asks only for what is still missing', async () => {
     const events = Array.from({ length: 500 }, (_, i) => event(NOW - (500 - i) * 1000));
 
@@ -102,28 +125,5 @@ describe('CloudWatchProvider.getLogsBySource latest logs', () => {
     await provider.getLogsBySource('insforge.logs', 50000);
 
     expect(calls.map((c) => c.limit)).toEqual([100, 10000]);
-  });
-
-  it('reports the newest event as lastActivity when the stats Insights query fails', async () => {
-    const events = Array.from({ length: 5000 }, (_, i) => event(NOW - (5000 - i) * 10000));
-    const { provider } = providerWith(events);
-    const { send } = (provider as unknown as { cwClient: { send: (cmd: unknown) => unknown } })
-      .cwClient;
-    let emptyPage = true;
-    Object.assign(provider, {
-      cwClient: {
-        send: async (cmd: unknown) => {
-          if (cmd instanceof FilterLogEventsCommand && emptyPage) {
-            emptyPage = false;
-            return { events: [], nextToken: '0' };
-          }
-          return send(cmd);
-        },
-      },
-    });
-
-    const [stats] = await provider.getLogSourceStats();
-
-    expect(stats.lastActivity).toBe(new Date(NOW - 10000).toISOString());
   });
 });
