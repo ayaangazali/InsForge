@@ -82,9 +82,13 @@ describe('CloudWatchProvider.getLogsBySource latest logs', () => {
     const { send } = (provider as unknown as { cwClient: { send: (cmd: unknown) => unknown } })
       .cwClient;
     let emptyPage = true;
+    const tokens: Array<string | undefined> = [];
     Object.assign(provider, {
       cwClient: {
         send: async (cmd: unknown) => {
+          if (cmd instanceof FilterLogEventsCommand) {
+            tokens.push(cmd.input.nextToken);
+          }
           if (cmd instanceof FilterLogEventsCommand && emptyPage) {
             emptyPage = false;
             return { events: [], nextToken: '0' };
@@ -97,6 +101,7 @@ describe('CloudWatchProvider.getLogsBySource latest logs', () => {
     const [stats] = await provider.getLogSourceStats();
 
     expect(stats.lastActivity).toBe(new Date(NOW - 10000).toISOString());
+    expect(tokens).toEqual([undefined, '0']);
   });
 
   it('pages backward past short pages and asks only for what is still missing', async () => {
